@@ -74,7 +74,7 @@ bool isStateValid(const planning_scene::PlanningScene* planning_scene,
 void computeConstantEefSpeedParametrization(robot_trajectory::RobotTrajectory& rt)
 {
     auto durations = rt.getWayPointDurations();
-    double max_waypoint_duration = std::max_element(durations.begin(), durations.end());
+    double max_waypoint_duration = std::max_element(std::begin(durations), std::end(durations));
 
     // start at i=1 because waypoint 0 corresponds to the starting pose and has
     // duration 0

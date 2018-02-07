@@ -44,6 +44,8 @@
 #include <moveit_msgs/DisplayTrajectory.h>
 #include <moveit/trajectory_processing/iterative_time_parameterization.h>
 
+#include <algorithm>
+
 move_group::MoveGroupCartesianPathService::MoveGroupCartesianPathService()
   : MoveGroupCapability("CartesianPathService"), display_computed_paths_(true)
 {
@@ -67,6 +69,18 @@ bool isStateValid(const planning_scene::PlanningScene* planning_scene,
   state->update();
   return (!planning_scene || !planning_scene->isStateColliding(*state, group->getName())) &&
          (!constraint_set || constraint_set->decide(*state).satisfied);
+}
+
+void computeConstantEefSpeedParametrization(robot_trajectory::RobotTrajectory& rt)
+{
+    double max_waypoint_duration = std::max(rt.getWayPointDurations());
+
+    // start at i=1 because waypoint 0 corresponds to the starting pose and has
+    // duration 0
+    for(int i = 1; i < rt.getWayPointCount(); i++)
+    {
+	rt.setWayPointDurationFromPrevious(max_waypoint_duration);
+    }
 }
 }
 
@@ -155,7 +169,29 @@ bool move_group::MoveGroupCartesianPathService::computeService(moveit_msgs::GetC
           // time trajectory
           // \todo optionally compute timing to move the eef with constant speed
           trajectory_processing::IterativeParabolicTimeParameterization time_param;
-          time_param.computeTimeStamps(rt, 1.0);
+
+	  // Obtain velocity and acceleration scaling factors from ros params.
+	  double max_velocity_scaling_factor = 1.0;
+	  double max_acceleration_scaling_factor = 1.0;
+	  root_node_handle_.param("/move_group/cartesian_path_planning/max_velocity_scaling_factor",
+				     max_acceleration_scaling_factor, 1.0);
+	  root_node_handle_.param("/move_group/cartesian_path_planning/max_velocity_scaling_factor",
+				     max_acceleration_scaling_factor, 1.0);
+
+	  time_param.computeTimeStamps(rt, max_velocity_scaling_factor, max_acceleration_scaling_factor);
+
+	  // If requested, compute timing to move the eef with constant speed:
+	  // Because waypoints are separated by equal distance, finding the
+	  // largest time difference between subsequent waypoints will provide
+	  // a limit for the speed at which we can move -- then, just set all
+	  // time differences to this value to move at a constant speed.
+	  bool enable_eef_constant_speed = false;
+	  root_node_handle_.param("/move_group/cartesian_path_planning/enable_eef_constant_speed",
+				  enable_eef_constant_speed, false);
+	  if (enable_eef_constant_speed)
+	  {
+	      computeConstantEefSpeedParametrization(rt);
+	  }
 
           rt.getRobotTrajectoryMsg(res.solution);
           ROS_INFO("Computed Cartesian path with %u points (followed %lf%% of requested trajectory)",
